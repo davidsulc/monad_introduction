@@ -6,10 +6,12 @@ defmodule FileDescriber do
   @mpg_equiv ["mpg", "mpeg"]
 
   def get_extension(filename) do
-    case filename |> String.split(".") do
-      [_name, ext] -> {:ok, ext}
-      [_] -> :no_extension
-    end
+      filename
+      |> String.split(".")
+      |> case do
+        [_name, ext] -> ext |> Maybe.unit()
+        [_name] -> Maybe.nothing()
+      end
   end
 
   def sanitize_extension(ext) when is_binary(ext) do
@@ -18,9 +20,9 @@ defmodule FileDescriber do
     |> do_sanitize_extension()
   end
 
-  def do_sanitize_extension(ext) when ext in @jpg_equiv, do: {:ok, @jpg}
-  def do_sanitize_extension(ext) when ext in @mpg_equiv, do: {:ok, @mpg}
-  def do_sanitize_extension(_), do: {:error, :invalid}
+  def do_sanitize_extension(ext) when ext in @jpg_equiv, do: @jpg |> Maybe.unit()
+  def do_sanitize_extension(ext) when ext in @mpg_equiv, do: @mpg |> Maybe.unit()
+  def do_sanitize_extension(_), do: Maybe.nothing()
 
   def determine_type(@jpg), do: "picture"
   def determine_type(@mpg), do: "movie"
@@ -44,13 +46,11 @@ defmodule FileDescriber do
       "File doesn't have valid extension"
   """
   def explain_extension(filename) do
-    with  {:ok, ext} <- get_extension(filename),
-          {:ok, sanitized_ext} <- sanitize_extension(ext),
-          type <- determine_type(sanitized_ext) do
-
-      format_output(type)
-    else
-      _ -> "File doesn't have valid extension"
-    end
+    filename
+    |> get_extension()
+    |> Maybe.flat_map(&sanitize_extension/1)
+    |> Maybe.map(&determine_type/1)
+    |> Maybe.map(&format_output/1)
+    |> Maybe.it_or_default("File doesn't have valid extension")
   end
 end
