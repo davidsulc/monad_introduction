@@ -1,0 +1,417 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>reveal.js</title>
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/black.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+
+		<style type="text/css">
+			.highlight {
+				color: green;
+			}
+
+			html.dimbg .slide-background {
+			    opacity: 0.3 !important;
+			}
+
+			mark .hljs-number {
+				color: black;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<section>
+				  <h1>Monads in Elixir</h1>
+
+				  Exploring typical patterns in idiotamic Elixir code, and how they relate to monadic composition
+
+					<aside class="notes">
+						Goal: provide a new thinking tool: monads
+					</aside>
+				</section>
+
+				<section>
+					<h1>Before we start</h1>
+
+					<section data-background-image="./img/no_idea.jpg" data-state="dimbg">
+					  <h2>Caveat Emptor</h2>
+
+					  I have no idea what I'm doing
+
+						<aside class="notes">
+							<ul>
+							<li>Wanted to contribute content to Elixir meetup, with content that would be of interest to attendees of different backgrounds, skill levels, and experience.</li>
+
+							<li>My expertise lies mainly in talking about subjects I don't fully understand</li>
+
+							<li>Monads are THE subjects that seems hard to grasp by newcomers to FP, so I dove in</li>
+
+							<li>Doesn't make sense to use monads in Elixir blindly, as other approaches can provide similar benefits while remaining easier to approach for others</li>
+
+							<li>I've never coded in Haskell...</li>
+							<ul>
+						</aside>
+					</section>
+
+					<section data-background-image="./img/wait_for_it.jpg" data-state="dimbg">
+					  <h2>Waiiiiit for it</h2>
+
+							<ul>
+								<li>Intro talk: focus on ease of understanding</li>
+								<li>"But there's a better way to do this"</li>
+								<li>Coming next: parser combinator using state monad</li>
+								<li>Patience, young grasshopper</li>
+							</ul>
+
+
+						<aside class="notes">
+							<p>This talk introduces monads with a focus on ease of understanding:
+							you'll often think <i>but there's a better way to do this in Elixir/Erlang</i>, and you could be right.</p>
+
+							<p>The aim is to lay the groundwork to later present and discuss the state monad as we use it to build a monadic parser combinator.</p>
+						</aside>
+					</section>
+				</section>
+
+				<section>
+					<h3>Paradigms and ways of thinking</h3>
+
+					<table>
+						<tr><th>Approach</th><th>Think in terms of</th></tr>
+						<tr><td>OOP</td><td><span class="highlight">state</span> and how to change it</td></tr>
+						<tr><td>FP</td><td><span class="highlight">data</span> and how to transform it</td></tr>
+					</table>
+				</section>
+
+				<section>
+					<h2>Data pipelines in Elixir</h2>
+
+					Let's take a closer look at 2 language features we have to process data within pipelines in Elixir:
+
+					<ul>
+						<li>composition through the <code class="highlight">|></code> pipe operator</li>
+						<li>using the <code class="highlight">with</code> construct
+					</ul>
+				</section>
+
+				<section>
+					<h2>Composition</h2>
+
+					<section>
+						<h3>Pipe operator</h3>
+
+						<ul>
+							<li>makes composition convenient</li>
+							<li>improves readability</li>
+						</ul>
+
+						<pre><code class="elixir" data-trim data-noescape>
+							Enum.reverse(Enum.sort([4, 5, 3, 1, 2]))
+						</code></pre>
+
+						<h4>VS</h4>
+						<pre><code class="elixir" data-trim data-noescape>
+							[4, 5, 3, 1, 2]
+							|> Enum.sort()
+							|> Enum.reverse()
+						</code></pre>
+					</section>
+
+					<section>
+						Build more powerful functions from smaller ones
+
+						<pre><code class="elixir" data-trim data-noescape>
+							def odd_or_even(number) do
+								number
+								|> round()
+								|> (& rem(&1, 2) == 0).()
+								|> case do
+									true -> :even
+									false -> :odd
+								end
+							end
+						</code></pre>
+					</section>
+
+					<section>
+						<p>Composing requires minimal "<span class="highlight">glue</span>": matching output/input types</p>
+
+						<p>Anonymous functions can <span class="highlight">glue</span> incompatible pipes together</p>
+
+						<pre><code class="elixir" data-trim data-noescape>
+							def odd_or_even(number) do
+								number
+								|> round()
+								<mark>|> (& rem(&1, 2) == 0).()</mark>
+								|> case do
+									true -> :even
+									false -> :odd
+								end
+							end
+						</code></pre>
+
+						<aside class="notes">
+							<p>Note: you can use anonymous functions to "glue" pipeline sections together, but need to have .() so it's a function call, not just a function reference</p>
+						</aside>
+					</section>
+
+					<section>
+						<p>Using minimal <span class="highlight">glue</span> already gives us useful composition opportunities.</p>
+
+						<p>What if we used more powerful <span class="highlight">glue</span>? Could we get more powerful compositions?</p>
+					</section>
+				</section>
+
+				<section>
+					<h1>Monads</h1>
+
+					<section data-background-image="./img/stephen-king-it.png" data-state="dimbg"></section>
+
+					<section data-background-image="./img/duct_tape_pipe.jpg" data-state="dimbg">
+						<p>The duct tape of powerful composition.</p>
+
+						<aside class="notes">
+							<p>When trying to learn more about monads, you come across many resources on the web saying monads are burritos, spacesuits, computation builders, or worse: "A monad is just a monoid in the category of endofunctors".</p>
+						</aside>
+					</section>
+
+					<section data-background-image="./img/zvv_map.jpg" data-state="dimbg">
+						<p>An abstraction</p>
+
+						<aside class="notes">
+							<p>Intuition: monad is an abstraction, in which you want to stay “until you’re done” => same thing as subway map.</p>
+
+							<p>Subway map doesn’t faithfully reproduce location of subway stations, but is a useful abstraction for navigating the subway. Once you’re in the subway, you refer only to the subway map to determine what the next step is and when you’ve arrived, not the city’s street map.</p>
+
+							<p>Just like you don’t get out at every stop to check where you are in the city, don’t unwrap the monad at 	every step: stay within the abstraction until it’s no longer useful.</p>
+						</aside>
+					</section>
+
+					<section>
+						<h3>What defines a monad?</h3>
+
+						<p>Respects the 3 monad laws (covered later)</p>
+
+						<aside class="notes">
+							<p>As long as the 3 laws are respected, monadic composition is guaranteed to work.</p>
+						</aside>
+					</section>
+
+					<section>
+						<h3>&nbsp;</h3>
+
+						<section>
+							<p>It's a thing that provides functions for <span class="highlight">interacting</span> with its <span class="highlight">contents</span>.</p>
+
+							<p>Yes, that's very generic and vague: it's why monads have so many different applications.</p>
+
+							<p>What the <span class="highlight">contents</span> are, and what the <span class="highlight">interactions</span> do, will be determined by your needs.</p>
+						</section>
+
+						<section>
+							<p>Let's talk about a monad that everyone is familiar with: lists.</p>
+
+							<aside class="notes">
+								<p>Other things that are "monad-like" and could help understand their uses a bit better: streams and Ecto.Multi.</p>
+
+								<p>With streams, you prepare all the processing within the "stream world" and then run it. You DO NOT run the stream after each step ("exiting the stream world") as that would completely defeat the purpose of using a stream. Benefits: lazy evaluation and composition of all operations to be performed in a single pass through.</p>
+
+								<p>Ecto.Multi allows you to build a computation for a DB call: you prepare the list of operations you want to perform, then execute them within a transaction. Benefits: better testability, code modularity (operation can be prepared without needed a DB connection), and readability.</p>
+							</aside>
+						</section>
+					</section>
+				</section>
+
+				<section>
+					<h3>List monad</h3>
+
+					<section>
+						<p>Is a type with one "hole": <code>list(int)</code>, <code>list(String.t)</code>, <code>list(any)</code>, etc.</p>
+
+						<p>Has a function to bring values into the "list world": <code>List.wrap/1</code> (or simply <code>[]</code>)</p>
+					</section>
+
+					<section>
+						<p>Provides a mechanism to make functions work in the list world: <code>Enum.map/2</code></p>
+
+						<p>The functions have <span class="highlight">no idea</span> about lists or how they work: the "conversion" is handled by <span class="highlight"><code>map</code></span>.</p>
+
+						<pre><code class="elixir" data-trim data-noescape>
+							def double(number), do: number * 2
+
+							[1, 2, 3] |> Enum.map(&double/1)
+							# [2, 4, 6]
+						</code></pre>
+
+						<aside class="notes">
+							<p>In Elixir some list fct is located within the Enum module.</p>
+						</aside>
+					</section>
+
+					<section>
+						<p>Provides a mechanism to make functions returning lists, to yield a "flat" result: <code>Enum.flat_map/2</code></p>
+
+						<p>If we have data within a list, and a function that takes a singles piece of data and returns a list: using <code>map</code> would result in nested lists, while <code>flat_map</code> will yield a single list.</p>
+					</section>
+
+					<section>
+						<pre><code class="elixir" data-trim data-noescape>
+							["alice", "bob"]
+							|> Enum.<mark>map</mark>(&String.split(&1, "", trim: true))
+							# [["a", "l", "i", "c", "e"], ["b", "o", "b"]]
+
+							["alice", "bob"]
+							|> Enum.<mark>flat_map</mark>(&String.split(&1, "", trim: true))
+							# ["a", "l", "i", "c", "e", "b", "o", "b"]
+						</code></pre>
+					</section>
+				</section>
+
+				<section>
+					<h3>Maybe monad</h3>
+
+					<p>Let's code our own (simple) monad!</p>
+				</section>
+
+				<section>
+					<h2>Monad laws</h2>
+
+					<section>
+						<h3>Left identity</h3>
+
+						<code>(return v) >>= f ≡ f v</code>
+
+						<pre><code class="elixir" data-trim data-noescape>
+							v
+					    |> Monad.unit()
+					    |> Monad.flat_map(f)
+						</code></pre>
+
+						<p>is equal to</p>
+
+						<pre><code class="elixir" data-trim data-noescape>
+							f.(v)
+						</code></pre>
+
+						<p>where <span class="highlight">v</span> is a "naked" value and <span class="highlight">f</span> is a function returning a monadic value</p>
+					</section>
+
+					<section>
+						<h3>Right identity</h3>
+
+						<code>m >>= return ≡ m</code>
+
+						<pre><code class="elixir" data-trim data-noescape>
+							m |> Monad.flat_map(&Monad.unit/1) == m
+						</code></pre>
+
+						<p>where <span class="highlight">m</span> is a monadic value</p>
+					</section>
+
+					<section>
+						<h3>Associativity</h3>
+
+						<code>m >>= return ≡ m</code>
+
+						<pre><code class="elixir" data-trim data-noescape>
+							m
+				      |> Maybe.flat_map(f)
+				      |> Maybe.flat_map(g)
+						</code></pre>
+
+						<p>is equal to</p>
+
+						<pre><code class="elixir" data-trim data-noescape>
+							compose = fn x -> f.(x) |> Maybe.flat_map(g) end
+							m |> Maybe.flat_map(compose)
+						</code></pre>
+
+						<p>where <span class="highlight">m</span> is a monadic value and <span class="highlight">f</span> and <span class="highlight">g</span> are functions returning a monadic value</p>
+					</section>
+				</section>
+
+				<section>
+					<h3>Maybe monad</h3>
+
+					<p>Let's code some tests for our monad!</p>
+				</section>
+
+				<section>
+					<h2>Flatten</h2>
+
+					<section>
+						<p>Having implemented <span class="highlight">flat_map</span>, we get <span class="highlight">flatten</span> "for free" using the identity function:</p>
+
+							<pre><code class="elixir" data-trim data-noescape>
+								def flatten(m) do
+									m |> flat_map(& &1)
+								end
+							</code></pre>
+					</section>
+
+					<section>
+						<p>But we can also define <span class="highlight">flat_map</span> in terms of <span class="highlight">map</span> and <span class="highlight">flatten</span> (e.g. if <span class="highlight">flatten</span> is easier to define):</p>
+
+							<pre><code class="elixir" data-trim data-noescape>
+								def flat_map(m, f) do
+									m |> map(f) |> flatten()
+								end
+							</code></pre>
+					</section>
+			</section>
+
+				<section>
+					<h2>Additional resources</h2>
+
+					<p>Good explanation of each abstraction leading to a monad implementation:<br/>
+						<a href="https://www.scala-exercises.org/cats/semigroup">
+							https://www.scala-exercises.org/cats/semigroup</a>
+					</p>
+
+					<p>Dr Frankenfunctor and the Monadster (more advanced monad used as a computation builder):<br/>
+						Article: <a href="https://fsharpforfunandprofit.com/posts/monadster/">
+							https://fsharpforfunandprofit.com/posts/monadster/</a><br/>
+						Talk: <a href="https://fsharpforfunandprofit.com/monadster/">
+							https://fsharpforfunandprofit.com/monadster/</a></p>
+
+					TODO
+				</section>
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info about config & dependencies:
+			// - https://github.com/hakimel/reveal.js#configuration
+			// - https://github.com/hakimel/reveal.js#dependencies
+			Reveal.initialize({
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+				]
+			});
+		</script>
+	</body>
+</html>
